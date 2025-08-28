@@ -105,57 +105,8 @@ function executeTool(name, args) {
   }
 }
 
-// SSE endpoint for MCP protocol
-app.get('/sse', (req, res) => {
-  console.log('New SSE client connected from:', req.ip);
-  
-  // Set SSE headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*'
-  });
-  
-  // Send initial connection message
-  const initMessage = {
-    jsonrpc: '2.0',
-    id: 1,
-    result: {
-      protocolVersion: '1.0.0',
-      capabilities: {
-        tools: {
-          listChanged: true
-        }
-      },
-      serverInfo: {
-        name: 'vps-mcp-server',
-        version: '1.0.0'
-      }
-    }
-  };
-  
-  res.write(`data: ${JSON.stringify(initMessage)}\n\n`);
-  
-  // Add client to active connections
-  clients.add(res);
-  
-  // Send keep-alive ping every 30 seconds
-  const keepAlive = setInterval(() => {
-    res.write(':ping\n\n');
-  }, 30000);
-  
-  // Handle client disconnect
-  req.on('close', () => {
-    console.log('SSE client disconnected');
-    clearInterval(keepAlive);
-    clients.delete(res);
-    res.end();
-  });
-});
-
-// Handle MCP messages
-app.post('/message', (req, res) => {
+// Handle MCP messages (centralized)
+function handleMCPMessage(req, res) {
   const { method, params, id } = req.body;
   console.log('Received MCP message:', method);
   
@@ -210,7 +161,12 @@ app.post('/message', (req, res) => {
     if (clients.size > 0) {
       const sseMessage = `data: ${JSON.stringify(mcpResponse)}\n\n`;
       clients.forEach(client => {
-        client.write(sseMessage);
+        try {
+          client.write(sseMessage);
+        } catch (e) {
+          console.log('Error writing to SSE client:', e.message);
+          clients.delete(client);
+        }
       });
     }
     
@@ -225,6 +181,71 @@ app.post('/message', (req, res) => {
       }
     });
   }
+}
+
+// SSE endpoint for MCP protocol - handles both GET and POST
+app.get('/sse', (req, res) => {
+  console.log('SSE GET request from:', req.ip);
+  
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*'
+  });
+  
+  // Send initial connection message
+  const initMessage = {
+    jsonrpc: '2.0',
+    id: 1,
+    result: {
+      protocolVersion: '1.0.0',
+      capabilities: {
+        tools: {
+          listChanged: true
+        }
+      },
+      serverInfo: {
+        name: 'vps-mcp-server',
+        version: '1.0.0'
+      }
+    }
+  };
+  
+  res.write(`data: ${JSON.stringify(initMessage)}\n\n`);
+  
+  // Add client to active connections
+  clients.add(res);
+  
+  // Send keep-alive ping every 30 seconds
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(':ping\n\n');
+    } catch (e) {
+      clearInterval(keepAlive);
+      clients.delete(res);
+    }
+  }, 30000);
+  
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log('SSE client disconnected');
+    clearInterval(keepAlive);
+    clients.delete(res);
+    res.end();
+  });
+});
+
+// SSE endpoint also handles POST for mcp-remote compatibility
+app.post('/sse', (req, res) => {
+  console.log('SSE POST request from:', req.ip);
+  handleMCPMessage(req, res);
+});
+
+// Handle MCP messages on /message endpoint
+app.post('/message', (req, res) => {
+  handleMCPMessage(req, res);
 });
 
 // Health check endpoint
@@ -245,7 +266,7 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     protocol: 'MCP 1.0.0',
     endpoints: {
-      sse: '/sse',
+      sse: '/sse (GET/POST)',
       message: '/message',
       health: '/health',
       test: '/test-tool'
@@ -273,7 +294,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   IP: 212.224.93.149`);
   console.log(`   Port: ${PORT}`);
   console.log(`\n🔌 Endpoints:`);
-  console.log(`   SSE: http://212.224.93.149:${PORT}/sse`);
+  console.log(`   SSE: http://212.224.93.149:${PORT}/sse (GET/POST)`);
   console.log(`   Health: http://212.224.93.149:${PORT}/health`);
   console.log(`   Info: http://212.224.93.149:${PORT}/`);
   console.log(`\n🛠️ Available tools: ${tools.map(t => t.name).join(', ')}`);
