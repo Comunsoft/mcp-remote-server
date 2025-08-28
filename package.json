@@ -2,16 +2,18 @@
   "name": "mcp-remote-server",
   "version": "1.0.0",
   "description": "MCP Remote Server for Claude AI integration",
-  "main": "server.js",
+  "type": "module",
+  "main": "vps-mcp-remote-complete.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node vps-mcp-remote-complete.js",
+    "dev": "node vps-mcp-remote-complete.js"
   },
-  "keywords": ["mcp", "claude", "ai", "remote"],
+  "keywords": ["mcp", "claude", "ai", "remote", "contpaqi"],
   "author": "Comunsoft",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "mssql": "^10.0.1"
   }
 }
