@@ -117,7 +117,6 @@ function executeTool(name, args) {
   }
 }
 
-// ✅ AGREGAR SSE ENDPOINT
 app.get('/sse', (req, res) => {
   console.log('SSE connection from:', req.ip);
   
@@ -136,14 +135,55 @@ app.get('/sse', (req, res) => {
   });
 });
 
-// ✅ SSE también maneja POST
 app.post('/sse', (req, res) => {
   handleMCPMessage(req, res);
 });
 
 function handleMCPMessage(req, res) {
-  const { method, params, id } = req.body;
-  console.log('Received MCP message:', method);
+  const { method, params, id, jsonrpc } = req.body;
+  console.log('Received MCP message:', method, 'id:', id, 'jsonrpc:', jsonrpc);
+  
+  // ✅ VALIDACIÓN JSON-RPC ESTRICTA
+  if (!jsonrpc || jsonrpc !== '2.0') {
+    return res.status(400).json({
+      jsonrpc: '2.0',
+      id: id || null,
+      error: {
+        code: -32600,
+        message: 'Invalid Request - missing or invalid jsonrpc field'
+      }
+    });
+  }
+  
+  if (!method || typeof method !== 'string') {
+    return res.status(400).json({
+      jsonrpc: '2.0',
+      id: id || null,
+      error: {
+        code: -32600,
+        message: 'Invalid Request - missing or invalid method field'
+      }
+    });
+  }
+  
+  // ✅ NORMALIZAR ID COMO NÚMERO
+  let validId = null;
+  if (id !== undefined && id !== null) {
+    if (typeof id === 'number') {
+      validId = id;
+    } else if (typeof id === 'string' && !isNaN(Number(id))) {
+      validId = Number(id);
+    } else {
+      return res.status(400).json({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: -32600,
+          message: 'Invalid Request - id must be number or numeric string'
+        }
+      });
+    }
+  }
   
   try {
     let response;
@@ -182,25 +222,42 @@ function handleMCPMessage(req, res) {
         break;
         
       default:
-        throw new Error(`Unknown method: ${method}`);
+        return res.json({
+          jsonrpc: '2.0',
+          id: validId,
+          error: {
+            code: -32601,
+            message: `Method not found: ${method}`
+          }
+        });
     }
     
-    res.json({
+    // ✅ RESPUESTA JSON-RPC PERFECTA
+    const jsonRpcResponse = {
       jsonrpc: '2.0',
-      id: id,
+      id: validId,
       result: response
-    });
+    };
+    
+    console.log('Sending response:', JSON.stringify(jsonRpcResponse, null, 2));
+    res.json(jsonRpcResponse);
     
   } catch (error) {
     console.error('Error handling message:', error);
-    res.json({
+    
+    // ✅ ERROR JSON-RPC PERFECTA
+    const jsonRpcError = {
       jsonrpc: '2.0',
-      id: id,
+      id: validId,
       error: {
         code: -32603,
-        message: error.message
+        message: error.message,
+        data: { stack: error.stack }
       }
-    });
+    };
+    
+    console.log('Sending error:', JSON.stringify(jsonRpcError, null, 2));
+    res.json(jsonRpcError);
   }
 }
 
