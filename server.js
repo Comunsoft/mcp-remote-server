@@ -7,7 +7,6 @@ app.use(express.json());
 
 const clients = new Set();
 
-// ✅ ESQUEMAS CORREGIDOS - Con additionalProperties y tipos precisos
 const tools = [
   {
     name: 'add',
@@ -74,7 +73,6 @@ const tools = [
 function executeTool(name, args) {
   switch (name) {
     case 'add':
-      // ✅ Validación de entrada
       if (typeof args.a !== 'number' || typeof args.b !== 'number') {
         throw new Error('Both a and b must be numbers');
       }
@@ -119,8 +117,31 @@ function executeTool(name, args) {
   }
 }
 
-// ✅ ENDPOINT CORREGIDO - Mejor manejo de errores
-app.post('/message', (req, res) => {
+// ✅ AGREGAR SSE ENDPOINT
+app.get('/sse', (req, res) => {
+  console.log('SSE connection from:', req.ip);
+  
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*'
+  });
+  
+  res.write('data: {"type":"connection","status":"connected"}\n\n');
+  clients.add(res);
+  
+  req.on('close', () => {
+    clients.delete(res);
+  });
+});
+
+// ✅ SSE también maneja POST
+app.post('/sse', (req, res) => {
+  handleMCPMessage(req, res);
+});
+
+function handleMCPMessage(req, res) {
   const { method, params, id } = req.body;
   console.log('Received MCP message:', method);
   
@@ -130,7 +151,7 @@ app.post('/message', (req, res) => {
     switch (method) {
       case 'initialize':
         response = {
-          protocolVersion: '2025-06-18',  // ✅ Versión actualizada
+          protocolVersion: '2025-06-18',
           capabilities: {
             tools: { listChanged: true }
           },
@@ -146,7 +167,6 @@ app.post('/message', (req, res) => {
         break;
         
       case 'tools/call':
-        // ✅ Validación mejorada de parámetros
         if (!params || !params.name) {
           throw new Error('Missing tool name in params');
         }
@@ -165,7 +185,6 @@ app.post('/message', (req, res) => {
         throw new Error(`Unknown method: ${method}`);
     }
     
-    // ✅ Respuesta JSON-RPC estándar
     res.json({
       jsonrpc: '2.0',
       id: id,
@@ -174,7 +193,6 @@ app.post('/message', (req, res) => {
     
   } catch (error) {
     console.error('Error handling message:', error);
-    // ✅ Respuesta de error JSON-RPC estándar
     res.json({
       jsonrpc: '2.0',
       id: id,
@@ -184,9 +202,10 @@ app.post('/message', (req, res) => {
       }
     });
   }
-});
+}
 
-// Health check endpoint
+app.post('/message', handleMCPMessage);
+
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy',
@@ -197,43 +216,23 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root endpoint - server info
 app.get('/', (req, res) => {
   res.json({
     name: 'VPS MCP Remote Server',
     version: '1.0.0',
     protocol: 'MCP 2025-06-18',
     endpoints: {
-      message: '/message',
-      health: '/health',
-      test: '/test-tool'
+      sse: '/sse (GET/POST)',
+      message: '/message',  
+      health: '/health'
     },
-    tools: tools.map(t => ({ name: t.name, description: t.description })),
-    server_ip: '212.224.93.149'
+    tools: tools.map(t => ({ name: t.name, description: t.description }))
   });
-});
-
-// Test endpoint to manually call tools
-app.post('/test-tool', (req, res) => {
-  const { tool, args } = req.body;
-  try {
-    const result = executeTool(tool, args || {});
-    res.json({ success: true, result });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 VPS MCP Remote Server started successfully!`);
-  console.log(`\n📡 Server Details:`);
-  console.log(`   IP: 212.224.93.149`);
-  console.log(`   Port: ${PORT}`);
-  console.log(`\n🔌 Endpoints:`);
-  console.log(`   Message: http://212.224.93.149:${PORT}/message`);
-  console.log(`   Health: http://212.224.93.149:${PORT}/health`);
-  console.log(`   Info: http://212.224.93.149:${PORT}/`);
-  console.log(`\n🛠️ Available tools: ${tools.map(t => t.name).join(', ')}`);
-  console.log(`\n✅ Server is ready for MCP client connections!`);
+  console.log(`🚀 VPS MCP Server running on ${PORT}`);
+  console.log(`📡 Endpoints: /sse, /message, /health`);
+  console.log(`🛠️ Tools: ${tools.map(t => t.name).join(', ')}`);
 });
